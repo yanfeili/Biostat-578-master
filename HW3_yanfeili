@@ -1,0 +1,120 @@
+Biost578 Homework 3
+
+You will have to analyze the RNA-seq data presented in:
+Henn, A. D. et al. High-resolution temporal response patterns to influenza vaccine reveal a distinct human plasma cell gene signature. Scientific Reports 3, 2327 (2013).
+  
+1. Get the data from GEO. Please look at the class lecture slides as we've done it already
+2. Use voom and limma to find genes that are differentially expressed at each time point compared to baseline (day 0). Use an FDR cutoff of 0.01.
+Display your results using pheatmap showing the log fold-change of the differentially expressed genes grouped by time point.  
+3. Perform a GSEA analysis using camera and the MSigDB Reactome pathway gene signatures. Display your results using pheatmap, again group by timepoint. This is similar to what we've done in class.
+
+==============================
+1. Load necessary packages
+```{r}
+library(GEOquery)
+library(limma)
+library(data.table)
+library(pheatmap)
+library(GSEABase)
+```
+
+Get the data GSE45735
+```{r}
+source("http://bioconductor.org/biocLite.R")
+biocLite(c("GEOmetadb", "GEOquery"))
+setwd("E:/Bioinformatics/Biostat-578")
+gd<-getGEO("GSE45735", destdir="Data/GEO/")
+   # replace the wrong T14 file with correct one manually
+pd <- pData(gd[[1]])
+names(pData(pd))
+# To see subject ID
+pd$characteristics_ch1.1
+# To see time point information
+pd$characteristics_ch1.2
+```
+
+Clean up the pData
+```{r}
+pd_small <- pd[!grepl("T13_Day8",pd$title),] 
+pd_small$day <- sapply(strsplit(gsub(" \\[PBMC\\]", "", pd_small$title),"_"),"[",2) 
+pd_small$subject <- sapply(strsplit(gsub(" \\[PBMC\\]", "", pd_small$title),"_"),"[",1) 
+colnames(matrix) <- rownames(pd_small)
+```
+
+2. Create ExpressionSet
+```{r}
+eset<- ExpressionSet(assayData = matrix+1)
+pData(eset) <- pd_small
+design_1 <- model.matrix(~subject+day, eset)
+voom_1 <- voom(eset, design = design_1)
+lm <- lmFit(voom_1, design_1)
+     # Calculate empirical Bayes statistics 
+eb <- eBayes(lm)
+FDR <- 0.01
+days <- 1:10
+tt_list <- vector("list", length(days))
+for (i in days) {
+  coef <- paste0("dayDay",i)
+  df <- topTable(eb, coef=coef, number=Inf, sort.by="none")
+  tt_list[[i]] <- as.data.table(df)
+  tt_list[[i]]$significant <- ifelse(tt_list[[i]]$adj.P.Val<FDR, "Yes", "No")
+  tt_list[[i]]$gene <- rownames(df)
+  setkey(tt_list[[i]], gene)
+}
+
+tt_list[[1]]$anytime <- ifelse(tt_list[[1]]$significant=="Yes", "Yes", "No")
+for (i in days[-1]) {
+    tt_list[[1]]$anytime <- ifelse(tt_list[[1]]$significant=="No" & tt_list[[i]]$significant=="Yes", "Yes", tt_list[[1]]$anytime)
+}
+
+setnames(tt_list[[1]],"logFC","Day 1")
+hm_dt <- tt_list[[1]][, c("AveExpr","t","P.Value","adj.P.Val","B","significant"):=NULL]
+for (i in 2:length(days)) {
+  setnames(tt_list[[i]], "logFC", paste("Day",i))
+  tt_list[[i]][, c("AveExpr","t","P.Value","adj.P.Val","B","significant"):=NULL]
+  hm_dt <- merge(hm_dt, tt_list[[i]], all.x=TRUE)
+}
+hm_df <- data.frame(hm_dt)
+rownames(hm_df) <- hm_dt$gene
+colnames(hm_df) <- colnames(hm_dt)
+
+     # Delete rows corresponding to genes not differentially expressed 
+hm_df <- hm_df[hm_df$anytime=="Yes",]
+
+     # Delete extraneous columns and plot heatmap
+hm_df$gene <- NULL
+hm_df$anytime <- NULL
+hm_m <- data.matrix(hm_df)
+pheatmap(hm_m,cluster_cols=FALSE,scale="row") 
+```
+
+3. 
+```{r}
+c2_set_2 <- getGmt("GSEA Sets/c2.cp.reactome.v4.0.symbols.gmt")
+gene_ids_2 <- geneIds(c2_set_2)
+sets_indices_2 <- symbols2indices(gene_ids_2, rownames(eset))
+
+# Find enriched gene sets over time
+desets_list <- vector("list", length(days))
+subjects <- length(unique(pData(eset)$subject))
+for (i in days) {
+  cont <- paste0("dayDay",i)
+  cont_matrix <- makeContrasts(cont, levels=design_1)
+  desets_list[[i]] <- camera(voom_1, index=sets_indices_2, design=design_1, contrast=cont_matrix)
+}
+
+# Draw heatmap of enriched gene sets over time
+PValue <- sapply(desets_list, function(x){ifelse(x$Direction=="Up", -10*log10(x$PValue), 10*log10(x$PValue))})
+rownames(PValue) <- rownames(desets_list[[1]])
+PValue_max <- rowMax(abs(PValue))
+PValue_small <- PValue[PValue_max>30, ]
+anno <- data.frame(Time=paste0("Day",days))
+rownames(anno) <- colnames(PValue_small)  <- paste0("Day",days)
+pheatmap(PValue_small, cluster_cols=FALSE, scale="row")
+```
+
+
+
+
+
+
