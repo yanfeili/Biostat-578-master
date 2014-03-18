@@ -1,0 +1,103 @@
+Homework 2:
+
+Reproduce the results presented in Figure 2 of the following paper: 
+Qian, F., Bolen, C. R., Jing, C., Wang, X., Zheng, W., Zhao, H., et al. (2013). Impaired toll-like receptor 3-mediated immune responses from macrophages of patients chronically infected with hepatitis C virus. Clinical and Vaccine Immunology : CVI, 20(2), 146–155. doi:10.1128/CVI.00530-12
+
+You will have to:
+1. Get the data from GEO
+2. Normalize the data (if necessary)
+3. Use limma to test for differential expression
+4. Display the results using a heatmap [Hint: Use the pheatmap package]
+
+Get the data from GEO(GSE40812)
+```{r}
+source("http://bioconductor.org/biocLite.R")
+biocLite(c("GEOmetadb", "GEOquery"))
+setwd("E:/Bioinformatics/Biostat-578")
+gds<-getGEO("GSE40812", destdir="Data/GEO/")
+gds<-gds[[1]]
+pd<-pData(gds)
+```
+
+load packages
+```{r}
+library(GEOmetadb)
+library(limma)
+library(data.table)
+library(pheatmap)
+```
+
+Get the monocyte-derived macrophage data
+```{r}
+mmpd<-pd[pd$source_name_ch1=="Monocyte-derived Macrophage",]
+```
+
+Clean up the pData
+```{r}
+colnames <- c("title", "source_name_ch1", "characteristics_ch1", "characteristics_ch1.2")
+mmpd_clean <- mmpd[,colnames]
+colnames(mmpd_clean) <- c("ptid", "cell", "HCV", "Poly_IC")
+mmpd_clean$ptid <- gsub("^.{3,4}_", "",mmpd_clean$ptid)
+mmpd_clean$ptid <- gsub("\\D", "", mmpd_clean$ptid)
+mmpd_clean$HCV <- gsub(".*: ", "", mmpd_clean$HCV)
+      # characteristic_ch1(HCV) indicates VL++ or VL--
+mmpd_clean$HCV <- ifelse(mmpd_clean$HCV=="Neg", "-", "+")
+mmpd_clean$Poly_IC <- tolower(gsub(".*: ", "", mmpd_clean$Poly_IC))
+     # characteristic_ch2(Poly_IC) indicates Mock or Poly IC
+```
+
+Find probe sets differentially expressed in response to poly IC treatment:
+```{r}
+mset <- gset_clean[, rownames(mmpd_clean)]
+pData(mset) <- mmpd_clean
+```
+
+Identify differentially expressed probe sets between Poly IC- and mock-treated macrophages
+```{r}
+mm_mset <- model.matrix(~Poly_IC, mset)
+fit_mset <- lmFit(mset, mm_mset)
+ebay_mset <- eBayes(fit_mset)
+top_poly <- topTable(ebay_mset, coef="Poly_IC H", number=Inf, sort.by="none")
+```
+
+Display number of differentially expressed probe sets using FDR of 0.05 and FC > 1.5
+```{r}
+sum(top_poly$adj.P.Val<0.05 & abs(top_poly$logFC)>log2(1.5))
+```
+# The result showed 1146 poly IC-responsive probe sets
+
+Find differential expression of these probe poly IC-responsive sets based on HCV:
+```{r}
+# Create expressionSet for poly IC-responsive probe sets only
+mset_r <- mset[top_poly$adj.P.Val<0.05 & abs(top_poly$logFC)>log2(1.5),]
+
+# Of the poly IC-responsive probe sets, identify those differentially expressed between HCV+ and HCV- subjects
+mm_mset_r <- model.matrix(~Poly_IC+HCV, mset_r)
+fit_mset_r <- lmFit(mset_r, mm_mset_r)
+ebay_mset_r <- eBayes(fit_mset_r)
+top_poly_r <- topTable(ebay_mset_r, coef="HCVPos", number=Inf, sort.by="none")
+sum(top_poly_r$P.Value<0.1)
+```
+
+Use pheatmap to creat the figure
+```{r}
+finalset <- mset_r[top_poly_r$P.Value<0.05,] 
+# Create expressionSet for differentially expressed probe sets 
+```
+
+Draw heatmap by sorting by POly_IC and HCV, and then ptid
+```{r}
+finalpd <- pData(finalset)
+finalpd_sorted <- finalpd[order(finalpd$Poly_IC, finalpd$HCV, finalpd$ptid), ]
+hmcolorder <- rownames(finalpd_sorted)
+hmcolnames <- finalpd_sorted$ptid
+hmdata <- exprs(finalset)
+hmdt <- as.data.table(hmdata)
+rownames(hmdt) <- rownames(hmdata)
+setcolorder(hmdt, hmcolorder)
+hmdata <- data.matrix(hmdt)
+colnames(hmdata) <- hmcolnames
+heatmap(hmdata, Colv=NA)
+```
+
+
