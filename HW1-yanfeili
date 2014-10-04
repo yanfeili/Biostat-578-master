@@ -34,3 +34,17 @@ res
 library(data.table)
 tblmanu <- data.table(dbGetQuery(geo_con, "SELECT gse.title, gse.gse, gpl.ID, gpl.manufacturer,gpl.description FROM (gse JOIN gse_gpl ON gse.gse=gse_gpl.gse)j JOIN gpl ON j.gpl=gpl.gpl WHERE gse.title LIKE '%HCV%' AND gpl.manufacturer='Illumina'"))
 tblmanu
+
+
+
+Caitlin’s comments
+===================
+overall, i think your homework mostly achieves the questions asked. however, i believe there are some things you can change.
+- it should be in .Rmd format. for more information, see link here: http://www.rstudio.com/ide/docs/authoring/using_markdown. your current format is just a basic R script with a title. perhaps next time you can add more comments, and put your R code in chunks.
+- i believe for question 2 we were asked to first convert the database tables to the R data.table format, then perform the query on the data.table objects. it appears here you simply used the same database query then converted the results to a data.table. 
+
+to find the Illumina datasets from Yale, the problem is that the manufacturer listed is `Illumina, Inc.’ rather than just `Illumina.’ if in your query you asked for ‘LIKE %Illumina%` then perhaps more datasets would match and be returned from the database.
+
+it was a great start for hw 1! good job. we’ll hopefully continue to learn more as the quarter progresses.
+caitlin
+
